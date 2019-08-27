@@ -1,0 +1,145 @@
+version: 2
+
+defaults: &defaults
+  docker:
+    - image: circleci/golang:1.12
+      environment:
+        GO111MODULE: "on"
+
+  working_directory: /home/sampleapp
+
+deploy_k8s: &deploy_k8s
+  working_directory: /go/src/jobs
+  steps:
+    - attach_workspace:
+        at: /go/src/jobs
+    - setup_remote_docker
+    - run:
+        name: Setup Google Cloud SDK
+        command: bin/auth
+    - run:
+        name: Docker build and push
+        command: |
+          docker build -t gcr.io/${GOOGLE_PROJECT_ID}/${PROJECT_NAME}:${CIRCLE_SHA1} . -f deploy/Dockerfile
+          gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://gcr.io
+          docker push gcr.io/${GOOGLE_PROJECT_ID}/${PROJECT_NAME}:${CIRCLE_SHA1}
+    - run:
+        name: Deploy to Endpoints
+        command: |
+          envsubst < /go/src/jobs/deploy/swagger/openapi.yaml > /go/src/jobs/deploy/swagger/patched_openapi.yaml
+          gcloud endpoints services deploy deploy/swagger/patched_openapi.yaml --project $GOOGLE_PROJECT_ID
+
+    - run:
+        name: Deploy configmap
+        command: |
+          curl https://releases.hashicorp.com/consul-template/0.19.5/consul-template_0.19.5_linux_amd64.tgz --output consul.tgz
+          tar xvz -f consul.tgz -C .
+          envsubst < /go/src/jobs/deploy/consul/in.tpl > /go/src/jobs/deploy/consul/in_patched.tpl
+          ./consul-template -template "deploy/consul/in_patched.tpl:out.txt" -once -config=deploy/consul/conf.hcl
+          envsubst < deploy/configmap.yaml > deploy/patched_configmap.yaml
+          cat out.txt >> deploy/patched_configmap.yaml
+          kubectl apply -f deploy/patched_configmap.yaml
+
+    - run:
+        name: Deploy to Kubernetes
+        command: |
+          envsubst < /go/src/jobs/deploy/config.yml > /go/src/jobs/deploy/patched_config.yml
+          envsubst < /go/src/jobs/deploy/deactivate_worker.yml > /go/src/jobs/deploy/patched_deactivate_worker.yml
+          kubectl apply -f /go/src/jobs/deploy/patched_deactivate_worker.yml
+          kubectl apply -f /go/src/jobs/deploy/patched_config.yml
+          kubectl rollout status deployment/${PROJECT_NAME} -n $NAMESPACE
+
+aliases:
+  - &attach_docker
+    attach_workspace:
+      at: ~/repo/docker-cache
+
+  - &load_image
+    run:
+      name: Load image
+      command: docker load < docker-cache/built-image.tar
+
+jobs:
+  test:
+    <<: *defaults
+
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - v1-pkg-cache
+            -
+      - run:
+          name: Get Dependencies
+          command: GO111MODULE=on go get -d -v ./...
+
+      - run:
+          name: Run linters
+          command: |
+            wget -O - -q https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s v1.17.1
+            ./bin/golangci-lint run ./... -D errcheck
+
+      - run:
+          name: Run Tests
+          command: |
+            go get gotest.tools/gotestsum
+            mkdir junit
+            gotestsum --junitfile junit/unit-tests.xml
+
+      - save_cache:
+          key: v1-pkg-cache
+          paths:
+            - "/go/pkg"
+
+  build:
+
+    <<: *defaults
+    steps:
+      - checkout
+      - run:
+          name: Build Binary
+          command: |
+            GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -v -a -o /home/sampleapp/sampleappbin ./server.go
+
+      - persist_to_workspace:
+          root: /home/sampleapp
+          paths:
+            - sampleappbin
+            - bin/auth
+            - deploy/*
+  deploy:
+    docker:
+      - image: google/cloud-sdk
+        environment:
+          - GOOGLE_PROJECT_ID: "merlin-pro"
+          - GOOGLE_COMPUTE_ZONE: "us-central1-a"
+          - GOOGLE_LOCATION: "us-central1"
+          - GOOGLE_CLUSTER_NAME: "front-services-cluster-pro"
+          - HOST: "jobs.api.merlinjobs.com"
+          - APP_PORT: 5000
+          - SERVICE_NAME: "jobs"
+          - NAMESPACE: "staging"
+          - ref: "$ref"
+          - ENVIRONMENT: "pro"
+          - MIN_REPLICA: "2"
+          - MAX_REPLICA: "5"
+    <<: *deploy_k8s
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      - test
+      - build_docker:
+          requires:
+            - test
+          filters:
+            branches:
+              only:
+                - master
+#      - deploy:
+#          requires:
+#            - build_docker
+#          filters:
+#            branches:
+#              only: master
