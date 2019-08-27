@@ -130,7 +130,7 @@ workflows:
   build:
     jobs:
       - test
-      - build_docker:
+      - build:
           requires:
             - test
           filters:
