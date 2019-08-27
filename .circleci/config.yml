@@ -6,7 +6,7 @@ defaults: &defaults
       environment:
         GO111MODULE: "on"
 
-  working_directory: /home/sampleapp
+  working_directory: /go/src/sampleapp
 
 deploy_k8s: &deploy_k8s
   working_directory: /go/src/jobs
@@ -99,10 +99,10 @@ jobs:
       - run:
           name: Build Binary
           command: |
-            GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -v -a -o /home/sampleapp/sampleappbin ./server.go
+            GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -v -a -o /go/src/sampleapp/sampleappbin ./server.go
 
       - persist_to_workspace:
-          root: /home/sampleapp
+          root: /go/src/sampleapp
           paths:
             - sampleappbin
             - bin/auth
