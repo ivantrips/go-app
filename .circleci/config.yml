@@ -106,7 +106,7 @@ workflows:
                 - master
       - deploy:
           requires:
-            - build_docker
+            - build
           filters:
             branches:
               only: master
