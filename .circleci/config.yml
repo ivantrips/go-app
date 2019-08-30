@@ -9,10 +9,9 @@ defaults: &defaults
   working_directory: /go/src/sampleapp
 
 deploy_k8s: &deploy_k8s
-  working_directory: /go/src/jobs
+  working_directory: /go/src/sampleapp
   steps:
-    - attach_workspace:
-        at: /go/src/jobs
+    - checkout
     - setup_remote_docker
     - run:
         name: Setup Google Cloud SDK
