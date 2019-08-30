@@ -25,6 +25,7 @@ deploy_k8s: &deploy_k8s
         command: |
           envsubst < deploy/k8s/deployment.yaml > deploy/k8s/patched_deployment.yaml
           rm deploy/k8s/deployment.yaml
+          kubectl apply -f deploy/k8s/
           kubectl rollout status deployment/server
 
 jobs:
