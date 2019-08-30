@@ -101,6 +101,17 @@ jobs:
           command: |
             GO111MODULE=on GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -v -a -o /go/src/sampleapp/sampleappbin ./server.go
 
+      - run:
+          name: Build Docker image
+          command: |
+            docker build . -t ivantrips/sampleapp:${CIRCLE_SHA1} -f deploy/Dockerfile
+
+      - run:
+          name: Publish image
+          command: |
+            echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            docker push ivantrips/sampleapp:${CIRCLE_SHA1}
+
       - persist_to_workspace:
           root: /go/src/sampleapp
           paths:
@@ -115,14 +126,7 @@ jobs:
           - GOOGLE_COMPUTE_ZONE: "us-central1-a"
           - GOOGLE_LOCATION: "us-central1"
           - GOOGLE_CLUSTER_NAME: "front-services-cluster-pro"
-          - HOST: "jobs.api.merlinjobs.com"
-          - APP_PORT: 5000
           - SERVICE_NAME: "jobs"
-          - NAMESPACE: "staging"
-          - ref: "$ref"
-          - ENVIRONMENT: "pro"
-          - MIN_REPLICA: "2"
-          - MAX_REPLICA: "5"
     <<: *deploy_k8s
 
 workflows:
