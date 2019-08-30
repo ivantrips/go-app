@@ -96,6 +96,7 @@ jobs:
     <<: *defaults
     steps:
       - checkout
+      - setup_remote_docker
       - run:
           name: Build Binary
           command: |
