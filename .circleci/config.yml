@@ -18,46 +18,15 @@ deploy_k8s: &deploy_k8s
         name: Setup Google Cloud SDK
         command: bin/auth
     - run:
-        name: Docker build and push
-        command: |
-          docker build -t gcr.io/${GOOGLE_PROJECT_ID}/${PROJECT_NAME}:${CIRCLE_SHA1} . -f deploy/Dockerfile
-          gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://gcr.io
-          docker push gcr.io/${GOOGLE_PROJECT_ID}/${PROJECT_NAME}:${CIRCLE_SHA1}
-    - run:
-        name: Deploy to Endpoints
-        command: |
-          envsubst < /go/src/jobs/deploy/swagger/openapi.yaml > /go/src/jobs/deploy/swagger/patched_openapi.yaml
-          gcloud endpoints services deploy deploy/swagger/patched_openapi.yaml --project $GOOGLE_PROJECT_ID
-
-    - run:
-        name: Deploy configmap
-        command: |
-          curl https://releases.hashicorp.com/consul-template/0.19.5/consul-template_0.19.5_linux_amd64.tgz --output consul.tgz
-          tar xvz -f consul.tgz -C .
-          envsubst < /go/src/jobs/deploy/consul/in.tpl > /go/src/jobs/deploy/consul/in_patched.tpl
-          ./consul-template -template "deploy/consul/in_patched.tpl:out.txt" -once -config=deploy/consul/conf.hcl
-          envsubst < deploy/configmap.yaml > deploy/patched_configmap.yaml
-          cat out.txt >> deploy/patched_configmap.yaml
-          kubectl apply -f deploy/patched_configmap.yaml
+        name: Setup Google Cloud SDK
+        command: bin/auth
 
     - run:
         name: Deploy to Kubernetes
         command: |
-          envsubst < /go/src/jobs/deploy/config.yml > /go/src/jobs/deploy/patched_config.yml
-          envsubst < /go/src/jobs/deploy/deactivate_worker.yml > /go/src/jobs/deploy/patched_deactivate_worker.yml
-          kubectl apply -f /go/src/jobs/deploy/patched_deactivate_worker.yml
-          kubectl apply -f /go/src/jobs/deploy/patched_config.yml
-          kubectl rollout status deployment/${PROJECT_NAME} -n $NAMESPACE
-
-aliases:
-  - &attach_docker
-    attach_workspace:
-      at: ~/repo/docker-cache
-
-  - &load_image
-    run:
-      name: Load image
-      command: docker load < docker-cache/built-image.tar
+          envsubst < deploy/k8s/deployment.yaml > deploy/k8s/patched_deployment.yaml
+          rm deploy/k8s/deployment.yaml
+          kubectl rollout status deployment/server
 
 jobs:
   test:
@@ -113,21 +82,14 @@ jobs:
             echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             docker push ivantrips/sampleapp:${CIRCLE_SHA1}
 
-      - persist_to_workspace:
-          root: /go/src/sampleapp
-          paths:
-            - sampleappbin
-            - bin/auth
-            - deploy/*
   deploy:
     docker:
       - image: google/cloud-sdk
         environment:
-          - GOOGLE_PROJECT_ID: "merlin-pro"
+          - GOOGLE_PROJECT_ID: "personio-test-ivan"
           - GOOGLE_COMPUTE_ZONE: "us-central1-a"
           - GOOGLE_LOCATION: "us-central1"
-          - GOOGLE_CLUSTER_NAME: "front-services-cluster-pro"
-          - SERVICE_NAME: "jobs"
+          - GOOGLE_CLUSTER_NAME: "sre-test"
     <<: *deploy_k8s
 
 workflows:
@@ -142,9 +104,9 @@ workflows:
             branches:
               only:
                 - master
-#      - deploy:
-#          requires:
-#            - build_docker
-#          filters:
-#            branches:
-#              only: master
+      - deploy:
+          requires:
+            - build_docker
+          filters:
+            branches:
+              only: master
