@@ -2,6 +2,6 @@ FROM alpine:3.7
 
 RUN apk -U add ca-certificates wget
 
-ADD jobsbin /bin/jobsbin
+ADD sampleappbin /bin/sampleappbin
 
-CMD ["jobsbin"]
+CMD ["sampleappbin"]
